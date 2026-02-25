@@ -13,17 +13,16 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 import copy
 
-# ---------- 加载保存的类定义和模型 ----------
-# 因为模型依赖自定义类，所以必须在此处重新定义 SuperLearnerClassifier
-# （从你原来的 app.py 中复制完整定义）
+# ---------- 导入可能的 XGBoost ----------
 try:
     from xgboost import XGBClassifier
     XGB_INSTALLED = True
 except ImportError:
     XGB_INSTALLED = False
 
+# ---------- SuperLearnerClassifier 类定义（请从你原来的 app.py 完整复制）----------
 class SuperLearnerClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, base_learners=None, meta_learner=None, cv_folds=5):
+     def __init__(self, base_learners=None, meta_learner=None, cv_folds=5):
         if base_learners is None:
             self.base_learners = [
                 ('lr', LogisticRegression(random_state=42, max_iter=1000)),
@@ -80,8 +79,8 @@ class SuperLearnerClassifier(BaseEstimator, ClassifierMixin):
         # 注意：这里直接返回类别索引，因为加载后 label_encoder 可能未保存，所以返回整数
         return np.argmax(probas, axis=1)
 
-# 加载模型和工具
-@st.cache_resource  # 缓存模型，避免重复加载
+# ---------- 加载模型和工具 ----------
+@st.cache_resource
 def load_models():
     model = joblib.load('super_learner_final.joblib')
     scaler = joblib.load('scaler_final.joblib')
@@ -91,68 +90,139 @@ def load_models():
 
 model, scaler, feature_names, class_names = load_models()
 
-# ---------- 页面布局 ----------
-st.set_page_config(page_title="代谢物预测", layout="centered")
-st.title("🧪 血浆氨基酸代谢物预测模型")
-st.markdown("输入以下代谢物浓度，模型将预测属于 **健康/胃癌/结直肠癌** 的概率。")
+# ---------- 特征显示名称和单位映射 ----------
+# 注意：feature_names 是从文件加载的原始名称（如 'Goose_deoxycholic_acid'）
+# 我们需要将其映射为显示名称，并加上单位
+display_names = {
+    'phenylalanine': 'Phenylalanine',
+    'Goose_deoxycholic_acid': 'Chenodeoxycholic acid',   # 按用户要求修改
+    'Glycine': 'Glycine',
+    'Glutamine': 'Glutamine',
+    'Citrulline': 'Citrulline',
+    'Arginine': 'Arginine',
+    'Tyrosine': 'Tyrosine',
+    'Leucine': 'Leucine',
+    'Proline': 'Proline',
+    'Serine': 'Serine',
+    'Threonine': 'Threonine',
+    'Asparagine': 'Asparagine',
+    'Valine': 'Valine',
+    'Isoleucine': 'Isoleucine',
+    'BCAA_AAA': 'BCAA/AAA',   # 按用户要求修改
+}
 
-# 创建输入表单
+# 单位映射
+units = {
+    'phenylalanine': 'μmol/L',
+    'Goose_deoxycholic_acid': 'nmol/ml',
+    'Glycine': 'μmol/L',
+    'Glutamine': 'μmol/L',
+    'Citrulline': 'μmol/L',
+    'Arginine': 'μmol/L',
+    'Tyrosine': 'μmol/L',
+    'Leucine': 'μmol/L',
+    'Proline': 'μmol/L',
+    'Serine': 'μmol/L',
+    'Threonine': 'μmol/L',
+    'Asparagine': 'μmol/L',
+    'Valine': 'μmol/L',
+    'Isoleucine': 'μmol/L',
+    'BCAA_AAA': '',  # 无单位
+}
+
+# 生成用于显示的标签列表（保持与 feature_names 顺序一致）
+labels = []
+for fname in feature_names:
+    base = display_names.get(fname, fname)
+    unit = units.get(fname, '')
+    if unit:
+        label = f"{base} ({unit})"
+    else:
+        label = base
+    labels.append(label)
+
+# ---------- 页面配置 ----------
+st.set_page_config(
+    page_title="Metabolite Prediction Model",
+    page_icon="🧪",
+    layout="centered"
+)
+
+st.title("🧪 Plasma Amino Acid Metabolite Prediction Model")
+st.markdown("Enter the concentrations of the following metabolites to predict the probability of **Healthy / Gastric Cancer / Colorectal Cancer**.")
+
+# ---------- 输入表单 ----------
 with st.form("input_form"):
-    cols = st.columns(2)  # 分两列显示输入框
+    cols = st.columns(2)
     input_values = []
-    for i, feature in enumerate(feature_names):
+    for i, label in enumerate(labels):
         col = cols[i % 2]
-        value = col.number_input(
-            f"{feature}",
+        # 设置默认值，可根据实际情况调整
+        val = col.number_input(
+            label,
             min_value=0.0,
             max_value=1000.0,
             value=100.0,
             step=1.0,
             format="%.2f",
-            key=feature
+            key=f"feat_{i}"
         )
-        input_values.append(value)
+        input_values.append(val)
     
-    submitted = st.form_submit_button("开始预测")
+    submitted = st.form_submit_button("Predict")
 
 # ---------- 预测和结果显示 ----------
 if submitted:
-    # 将输入转换为数组并标准化
     X = np.array(input_values).reshape(1, -1)
     X_scaled = scaler.transform(X)
     
-    # 预测
-    pred_class = model.predict(X_scaled)[0]
+    # 模型预测（可能返回索引，也可能返回名称，这里统一处理）
+    pred_result = model.predict(X_scaled)[0]
+    # 如果结果是数字索引，则转换为名称
+    if isinstance(pred_result, (int, np.integer)):
+        pred_class = class_names[pred_result]
+    else:
+        pred_class = pred_result
+    
     pred_proba = model.predict_proba(X_scaled)[0]
     
     # 显示结果
-    st.subheader("📊 预测结果")
-    st.success(f"**预测类别：{pred_class}**")
+    st.subheader("📊 Prediction Result")
+    st.success(f"**Diagnosis: {pred_class}**")
     
-    # 创建概率数据框
+    # 概率柱状图
     prob_df = pd.DataFrame({
-        '类别': class_names,
-        '概率 (%)': pred_proba * 100
+        'Class': class_names,
+        'Probability (%)': pred_proba * 100
     })
     
-    # 使用 Plotly 绘制柱状图（更美观）
     fig = go.Figure(data=[
         go.Bar(
-            x=prob_df['类别'],
-            y=prob_df['概率 (%)'],
+            x=prob_df['Class'],
+            y=prob_df['Probability (%)'],
             marker_color=['#2E86AB', '#A23B72', '#F18F01'],
-            text=prob_df['概率 (%)'].round(1),
+            text=prob_df['Probability (%)'].round(1),
             textposition='outside'
         )
     ])
     fig.update_layout(
-        title="各类别预测概率",
-        xaxis_title="类别",
-        yaxis_title="概率 (%)",
+        title="Prediction Probabilities",
+        xaxis_title="Class",
+        yaxis_title="Probability (%)",
         yaxis=dict(range=[0, 100]),
         height=400
     )
     st.plotly_chart(fig, use_container_width=True)
     
-    # 同时显示表格
+    # 概率表格
     st.dataframe(prob_df, use_container_width=True)
+
+# ---------- 底部免责声明和作者信息 ----------
+st.markdown("---")
+st.markdown(
+    """
+    **Disclaimer**: This tool is for research purposes only. It is based on a retrospective study and has not been validated for clinical use. Results should not be used as the sole basis for diagnosis or treatment decisions.
+
+    **Author Information**: Xiao-hua Jiang, Shun Zhang, Ming-yi Yuan. Department of Gastrointestinal Surgery, Shanghai East Hospital, School of Medicine, Tongji University.
+    """
+)

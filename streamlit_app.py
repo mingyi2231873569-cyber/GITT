@@ -20,9 +20,9 @@ try:
 except ImportError:
     XGB_INSTALLED = False
 
-# ---------- SuperLearnerClassifier 类定义（请从你原来的 app.py 完整复制）----------
+# ---------- SuperLearnerClassifier 类定义（已修正缩进）----------
 class SuperLearnerClassifier(BaseEstimator, ClassifierMixin):
-     def __init__(self, base_learners=None, meta_learner=None, cv_folds=5):
+    def __init__(self, base_learners=None, meta_learner=None, cv_folds=5):
         if base_learners is None:
             self.base_learners = [
                 ('lr', LogisticRegression(random_state=42, max_iter=1000)),
@@ -46,37 +46,29 @@ class SuperLearnerClassifier(BaseEstimator, ClassifierMixin):
 
         self.cv_folds = cv_folds
         self.is_fitted = False
-        self.label_encoder = None  # 注意：预测时不需要重新编码，所以这里可以简单处理
+        self.label_encoder = None
         self.n_classes_ = None
         self.classes_ = None
         self.base_learners_final = []
 
     def fit(self, X, y):
-        # 此方法在训练时使用，但加载模型后不会调用，因此可以留空或简单实现
-        # 但为了类的完整性，这里保留一个空fit，实际训练已经在训练阶段完成
         self.is_fitted = True
         return self
 
     def predict_proba(self, X):
         check_is_fitted(self, 'is_fitted')
         X = check_array(X)
-
-        # 生成基学习器的预测
         meta_features = np.zeros((X.shape[0], len(self.base_learners_final) * self.n_classes_))
-
         for i, (name, clf) in enumerate(self.base_learners_final):
             if hasattr(clf, 'predict_proba'):
                 probas = clf.predict_proba(X)
             else:
-                # 简化处理，实际应根据clf类型选择合适方法
                 probas = np.ones((len(X), self.n_classes_)) / self.n_classes_
             meta_features[:, i*self.n_classes_:(i+1)*self.n_classes_] = probas
-
         return self.meta_learner.predict_proba(meta_features)
 
     def predict(self, X):
         probas = self.predict_proba(X)
-        # 注意：这里直接返回类别索引，因为加载后 label_encoder 可能未保存，所以返回整数
         return np.argmax(probas, axis=1)
 
 # ---------- 加载模型和工具 ----------

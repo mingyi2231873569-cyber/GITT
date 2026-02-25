@@ -154,7 +154,7 @@ with st.form("input_form"):
             label,
             min_value=0.0,
             max_value=1000.0,
-            value=100.0,
+            value=0.0,
             step=1.0,
             format="%.2f",
             key=f"feat_{i}"
